@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>计时记账日历</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto}
+
+/* 浅色默认 */
+:root {
+  --bg:#f7f8fa;
+  --card-bg:#ffffff;
+  --text:#222222;
+  --text-secondary:#666666;
+  --border:#e5e7eb;
+  --sum-bg:#eef2ff;
+}
+/* 深色模式 */
+.dark-mode{
+  --bg:#1a1a22;
+  --card-bg:#272733;
+  --text:#f0f0f0;
+  --text-secondary:#aaaaaa;
+  --border:#383848;
+  --sum-bg:#2b2b40;
+}
+
+body{background:var(--bg);color:var(--text);max-width:620px;margin:0 auto;
+min-height:100vh;
+display:flex;
+flex-direction:column;
+justify-content:center;
+padding:20px 12px;
+transition: background 0.3s, color 0.3s;
+}
+
+.sum-bar{background:var(--sum-bg);padding:10px 12px;border-radius:10px;margin-bottom:12px;font-size:15px}
+.header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.header-center{font-size:18px;font-weight:bold;}
+.btn{border:none;background:#2563eb;color:#fff;padding:8px 12px;border-radius:8px;font-size:14px}
+
+.week{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:4px}
+.week div{text-align:center;padding:8px;font-size:14px;color:var(--text-secondary)}
+.days{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:14px}
+.day{aspect-ratio:1/1;background:var(--card-bg);border-radius:8px;display:flex;flex-direction:column;justify-content:center;align-items:center;font-size:15px;border:1px solid var(--border);padding:2px;position:relative;}
+.day.today{background:#2563eb;color:white;border-color:#2563eb}
+.day.other-month{color:var(--text-secondary);background:var(--bg)}
+.day-data{font-size:10px;margin-top:2px;line-height:1.2;text-align:center;color:#2563eb;}
+.day.batch-selected{outline:2px solid #ef4444;}
+
+/* 下拉选择区域，加大间隔 */
+.select-wrap{display:flex;gap:14px;justify-content:center;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.select-wrap select{padding:7px 10px;border-radius:8px;border:1px solid var(--border);font-size:16px;background:var(--card-bg);color:var(--text)}
+
+.bottom-tool{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.btn-export{background:#0891b2}
+.btn-import{background:#65a30d}
+.btn-batchmode{background:#9333ea;}
+
+.modal{position:fixed;inset:0;background:rgba(0,0,0,0.4);display:none;align-items:center;justify-content:center;padding:16px}
+.modal-box{background:var(--card-bg);color:var(--text);border-radius:12px;width:100%;max-width:340px;padding:18px}
+.modal h3{margin-bottom:14px}
+.form-item{margin-bottom:12px}
+.form-item label{display:block;margin-bottom:4px;font-size:15px}
+.form-item input{width:100%;border:1px solid var(--border);border-radius:8px;padding:10px;font-size:16px;background:var(--card-bg);color:var(--text)}
+.btns{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
+.btns button{padding:8px 14px;border-radius:8px;border:none;font-size:15px}
+.btn-save{background:#22c55e;color:white}
+.btn-close{background:#777;color:white}
+.btn-del-confirm{background:#dc2626;color:white;}
+input[type="file"]{display:none;}
+
+/* 深色开关 */
+.dark-switch{
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+.dark-switch input{width:44px;height:22px;}
+</style>
+</head>
+<body>
+
+<div class="sum-bar">
+  <div>📊当月合计：总小时 <span id="sumHour">0.00</span> h ｜ 总金额 ¥<span id="sumMoney">0.00</span></div>
+</div>
+
+<div class="header">
+  <button class="btn" id="prev">◀</button>
+  <div class="header-center" id="ym"></div>
+  <button class="btn" id="next">▶</button>
+</div>
+
+<div class="week">
+  <div>日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div>
+</div>
+<div class="days" id="daysBox"></div>
+
+<!-- 日历下方：年份月份下拉 + 深色开关，gap加大到14px -->
+<div class="select-wrap">
+  <select id="selYear"></select>
+  <select id="selMonth"></select>
+  <div class="dark-switch">
+    <span>🌙深色</span>
+    <input type="checkbox" id="darkToggle">
+  </div>
+</div>
+
+<!-- 底部：只保留批量模式按钮，删除选中按钮移到弹窗内部 -->
+<div class="bottom-tool">
+  <button class="btn btn-export" id="exportBtn">📥导出备份</button>
+  <button class="btn btn-import" id="importBtn">📤导入备份</button>
+  <button class="btn btn-batchmode" id="batchModeBtn">✓批量选择</button>
+  <input type="file" id="fileInput" accept=".json">
+</div>
+
+<div class="modal" id="modal">
+  <div class="modal-box">
+    <h3 id="modalDate"></h3>
+    <div class="form-item">
+      <label>小时</label>
+      <input type="number" step="0.01" id="inputHour" placeholder="例如 2.5">
+    </div>
+    <div class="form-item">
+      <label>金额</label>
+      <input type="number" step="0.01" id="inputMoney" placeholder="例如 120">
+    </div>
+    <div class="btns">
+      <button class="btn-close" id="modalClose">关闭</button>
+      <button class="btn-save" id="modalSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 批量删除确认弹窗 -->
+<div class="modal" id="batchDelModal">
+  <div class="modal-box">
+    <h3>批量删除</h3>
+    <p id="batchDelTip" style="margin:12px 0;line-height:1.5;"></p>
+    <div class="btns">
+      <button class="btn-close" id="batchDelCancel">取消</button>
+      <button class="btn-del-confirm" id="batchDelConfirm">🗑确认删除</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const records = JSON.parse(localStorage.getItem('calendarRecords')||'{}');
+let currentYear = new Date().getFullYear();
+let currentMonth = new Date().getMonth();
+let selectKey = '';
+
+//批量模式状态
+let batchSelectMode = false;
+let batchSelectedKeys = new Set();
+
+const selYear = document.getElementById('selYear');
+const selMonth = document.getElementById('selMonth');
+const ymEl = document.getElementById('ym');
+const daysBox = document.getElementById('daysBox');
+const modal = document.getElementById('modal');
+const modalDate = document.getElementById('modalDate');
+const inputHour = document.getElementById('inputHour');
+const inputMoney = document.getElementById('inputMoney');
+const fileInput = document.getElementById('fileInput');
+const sumHourEl = document.getElementById('sumHour');
+const sumMoneyEl = document.getElementById('sumMoney');
+const darkToggle = document.getElementById('darkToggle');
+const batchModeBtn = document.getElementById('batchModeBtn');
+
+const batchDelModal = document.getElementById('batchDelModal');
+const batchDelTip = document.getElementById('batchDelTip');
+const batchDelCancel = document.getElementById('batchDelCancel');
+const batchDelConfirm = document.getElementById('batchDelConfirm');
+
+//深色模式本地存储key
+const DARK_KEY = 'calendar_darkmode';
+
+// 根据时间自动判断：>=19点 或者 <8点 →深色；8‑18点浅色
+function autoDarkByTime(){
+  const hour = new Date().getHours();
+  return hour >=19 || hour <8;
+}
+
+//应用深色状态
+function applyDark(isDark){
+  if(isDark){
+    document.body.classList.add('dark-mode');
+    darkToggle.checked = true;
+  }else{
+    document.body.classList.remove('dark-mode');
+    darkToggle.checked = false;
+  }
+}
+
+//初始化深色模式
+function initDarkMode(){
+  const saved = localStorage.getItem(DARK_KEY);
+  if(saved !== null){
+    //用户手动设置优先
+    applyDark(saved === '1');
+  }else{
+    //无手动设置，按时间自动
+    applyDark(autoDarkByTime());
+  }
+}
+
+//手动开关切换
+darkToggle.onchange = function(){
+  const isDark = this.checked;
+  applyDark(isDark);
+  localStorage.setItem(DARK_KEY, isDark ? '1':'0');
+}
+
+//切换批量选择模式
+batchModeBtn.onclick = function(){
+  batchSelectMode = !batchSelectMode;
+  batchSelectedKeys.clear();
+  if(batchSelectMode){
+    this.textContent = "✓退出批量";
+    this.style.background="#b45309";
+  }else{
+    this.textContent = "✓批量选择";
+    this.style.background="#9333ea";
+  }
+  render();
+}
+
+//点击已勾选条目后，弹出批量删除弹窗
+function openBatchDeleteModal(){
+  if(batchSelectedKeys.size ===0){
+    alert("请点击日历上已有数据的日期进行勾选");
+    return;
+  }
+  batchDelTip.innerText = `已选择 ${batchSelectedKeys.size} 条记账记录，删除后不可恢复，建议先导出备份！`;
+  batchDelModal.style.display = 'flex';
+}
+
+//批量删除确认
+batchDelConfirm.onclick = function(){
+  for(const key of batchSelectedKeys){
+    delete records[key];
+  }
+  localStorage.setItem('calendarRecords',JSON.stringify(records));
+  batchSelectedKeys.clear();
+  batchDelModal.style.display = 'none';
+  render();
+  alert("选中记录已删除");
+};
+
+batchDelCancel.onclick = function(){
+  batchDelModal.style.display = 'none';
+};
+batchDelModal.onclick = function(e){
+  if(e.target === batchDelModal) batchDelModal.style.display = 'none';
+};
+
+//填充年份下拉 2020‑2035
+function fillYearSelect(){
+  selYear.innerHTML = '';
+  for(let y=2020;y<=2035;y++){
+    const opt = document.createElement('option');
+    opt.value = y;
+    opt.textContent = y+"年";
+    selYear.appendChild(opt);
+  }
+}
+//填充月份下拉
+function fillMonthSelect(){
+  selMonth.innerHTML='';
+  for(let m=0;m<12;m++){
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = (m+1)+"月";
+    selMonth.appendChild(opt);
+  }
+}
+
+//下拉切换
+selYear.onchange=()=>{
+  currentYear = Number(selYear.value);
+  render();
+}
+selMonth.onchange=()=>{
+  currentMonth = Number(selMonth.value);
+  render();
+}
+
+//左右翻页按钮
+document.getElementById('prev').onclick=()=>{
+  currentMonth--;
+  if(currentMonth<0){currentMonth=11;currentYear--;}
+  render();
+}
+document.getElementById('next').onclick=()=>{
+  currentMonth++;
+  if(currentMonth>11){currentMonth=0;currentYear++;}
+  render();
+}
+
+//导出json
+document.getElementById('exportBtn').onclick = function(){
+  const jsonStr = JSON.stringify(records,null,2);
+  const blob = new Blob([jsonStr],{type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = "calendar-records.json";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+//导入json
+document.getElementById('importBtn').onclick = function(){
+  fileInput.click();
+}
+fileInput.onchange = function(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev){
+    try{
+      const loadData = JSON.parse(ev.target.result);
+      Object.assign(records, loadData);
+      localStorage.setItem('calendarRecords',JSON.stringify(records));
+      render();
+      alert("导入成功");
+    }catch(err){
+      alert("文件格式错误");
+    }
+  }
+  reader.readAsText(file);
+  fileInput.value = '';
+}
+
+//计算当月总和
+function calcMonthSum(){
+  let totalHour = 0;
+  let totalMoney = 0;
+  const monthStr = `${currentYear}-${currentMonth+1}-`;
+  for(const key in records){
+    if(key.startsWith(monthStr)){
+      totalHour += Number(records[key].hour);
+      totalMoney += Number(records[key].money);
+    }
+  }
+  sumHourEl.innerText = totalHour.toFixed(2);
+  sumMoneyEl.innerText = totalMoney.toFixed(2);
+}
+
+function render(){
+  ymEl.innerText = `${currentYear}年${currentMonth+1}月`;
+  selYear.value = currentYear;
+  selMonth.value = currentMonth;
+
+  daysBox.innerHTML = '';
+  const first = new Date(currentYear, currentMonth,1);
+  const last = new Date(currentYear, currentMonth+1,0);
+  const startWeek = first.getDay();
+  const totalDays = last.getDate();
+
+  //上月尾部格子
+  const prevLast = new Date(currentYear,currentMonth,0).getDate();
+  for(let i=0;i<startWeek;i++){
+    const d = document.createElement('div');
+    d.className = 'day other-month';
+    d.innerText = prevLast - startWeek + 1 + i;
+    daysBox.appendChild(d);
+  }
+
+  //渲染当月每一天
+  const today = new Date();
+  const tY = today.getFullYear();
+  const tM = today.getMonth();
+  const tD = today.getDate();
+
+  for(let d=1;d<=totalDays;d++){
+    const key = `${currentYear}-${currentMonth+1}-${d}`;
+    const el = document.createElement('div');
+    el.className = 'day';
+
+    const dayNum = document.createElement('div');
+    dayNum.innerText = d;
+    el.appendChild(dayNum);
+
+    if(records[key]){
+      const dataDiv = document.createElement('div');
+      dataDiv.className = 'day-data';
+      dataDiv.innerText = `H:${records[key].hour} ¥:${records[key].money}`;
+      el.appendChild(dataDiv);
+    }
+
+    if(tY===currentYear && tM===currentMonth && tD===d){
+      el.classList.add('today');
+    }
+
+    el.onclick = ()=>{
+      if(batchSelectMode){
+        if(!records[key]) return;
+        if(batchSelectedKeys.has(key)){
+          batchSelectedKeys.delete(key);
+          el.classList.remove("batch-selected");
+        }else{
+          batchSelectedKeys.add(key);
+          el.classList.add("batch-selected");
+        }
+        //选好之后立刻弹出删除确认弹窗
+        openBatchDeleteModal();
+      }else{
+        openEdit(key);
+      }
+    };
+
+    if(batchSelectMode && batchSelectedKeys.has(key)){
+      el.classList.add("batch-selected");
+    }
+
+    daysBox.appendChild(el);
+  }
+
+  //补齐月末格子
+  const totalRender = startWeek + totalDays;
+  const remain = totalRender%7;
+  if(remain>0){
+    for(let i=1;i<=7-remain;i++){
+      const d = document.createElement('div');
+      d.className = 'day other-month';
+      d.innerText = i;
+      daysBox.appendChild(d);
+    }
+  }
+  calcMonthSum();
+}
+
+//打开编辑弹窗
+function openEdit(key){
+  selectKey = key;
+  modalDate.innerText = key;
+  if(records[key]){
+    inputHour.value = records[key].hour;
+    inputMoney.value = records[key].money;
+  }else{
+    inputHour.value = '';
+    inputMoney.value = '';
+  }
+  modal.style.display='flex';
+}
+
+//保存
+document.getElementById('modalSave').onclick=()=>{
+  const h = parseFloat(inputHour.value);
+  const m = parseFloat(inputMoney.value);
+  if(!isNaN(h) && !isNaN(m)){
+    records[selectKey] = {hour:h, money:m};
+  }else{
+    delete records[selectKey];
+  }
+  localStorage.setItem('calendarRecords',JSON.stringify(records));
+  modal.style.display='none';
+  render();
+};
+
+document.getElementById('modalClose').onclick=()=>{modal.style.display='none'};
+modal.onclick=(e)=>{if(e.target===modal) modal.style.display='none'};
+
+initDarkMode();
+fillYearSelect();
+fillMonthSelect();
+render();
+</script>
+</body>
+</html>
